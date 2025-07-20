@@ -1,0 +1,100 @@
+workflow:
+  rules:
+    - changes:
+      - DemoParameter.yaml
+    - when: never
+
+image:
+  name: amazon/aws-cli
+  entrypoint: [""]
+    
+stages:
+  - Test
+  - deploy
+  - output
+  - upload
+  - events
+
+variables:
+  STACK_NAME: rakesh-EC2-output-demo-stack
+  REGION: ap-south-1
+
+cloud_formation_file_validation:
+  stage: Test
+  script:
+    - echo "✅ Validating template..."
+    - aws cloudformation validate-template --template-body file://DemoParameter.yaml
+
+deploy_stack:
+  stage: deploy
+  needs:
+    - cloud_formation_file_validation
+  script:
+    - echo "💡 Starting CloudFormation deployment..." 
+    - >
+      aws cloudformation deploy
+      --template-file DemoParameter.yaml
+      --stack-name $STACK_NAME
+      --capabilities CAPABILITY_NAMED_IAM
+
+stack_outputs:
+  stage: output
+  script:
+    - >
+      export INSTANCE_ID=$(aws cloudformation 
+      describe-stacks 
+      --stack-name rakesh-EC2-output-demo-stack 
+      --query "Stacks[0].Outputs[?ExportName=='MyInstanceEC2InstanceId'].OutputValue" 
+      --region $REGION --output text)
+    - echo Exporting instace details
+    - >
+      aws ec2 describe-instances
+      --instance-ids "$INSTANCE_ID"
+      --region $REGION
+      --output json > ec2_details.json
+  artifacts:
+    paths:
+      - ec2_details.json
+  needs:
+    - job: deploy_stack
+
+upload_to_s3:
+  stage: upload
+  needs: 
+    - stack_outputs
+  script:
+    - >
+      export BucketName=$(aws cloudformation 
+      describe-stacks 
+      --stack-name $STACK_NAME 
+      --query "Stacks[0].Outputs[?ExportName=='MyS3BucketName'].OutputValue" 
+      --region $REGION 
+      --output text)
+    - echo $BucketName
+    - aws s3 cp ec2_details.json s3://$BucketName/stack-outputs/
+
+stack_delete_on_failed_to_upload:
+  stage: upload
+  needs:
+    - upload_to_s3
+  script:
+    - echo upload to s3 failed deleting $STACK_NAME
+    - >
+      aws cloudformation
+      delete-stack
+      --stack-name $STACK_NAME
+      --region $REGION
+  when: on_failure
+
+list_of_events:
+  stage: events
+  script:
+    - aws cloudformation describe-stack-events --stack-name $STACK_NAME
+    - echo "✅ Outputs of Resources"
+    - >
+      aws cloudformation
+      describe-stacks
+      --stack-name $STACK_NAME
+      --query "Stacks[0].Outputs"
+      --region $REGION
+      --output table
