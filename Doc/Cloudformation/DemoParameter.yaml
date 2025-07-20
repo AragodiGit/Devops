@@ -1,0 +1,48 @@
+Parameters:
+  InstanceType:
+    Type: String
+    Description: Allowed EC2 types
+    Default: t2.micro
+    AllowedValues: 
+      - t2.large
+      - t2.small
+      - t2.2xlarge
+      - t2.micro
+      - t2.nano
+    ConstraintDescription: Selected instance type is not allowed
+  
+  ImageID:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-x86_64
+    
+
+Resources:
+  MyInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      AvailabilityZone: ap-south-1b
+      ImageId: !ref ImageID
+      InstanceType: !Ref InstanceType
+  
+  MyS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "rakesh-ec2-output-${AWS::Region}-${AWS::AccountId}"
+        
+Outputs:
+  EC2InstanceId:
+    Value: !Ref MyInstance
+    Export:
+      Name: MyInstanceEC2InstanceId
+
+  MyS3Bucket:
+   Value: !Ref MyS3Bucket
+   Export:
+    Name: MyS3BucketName
+
+  PubicIpAddress:
+    Description: "Public Ip address"
+    Value: !GetAtt MyInstance.PublicIp
+    Export:
+      Name: PubicIpAddress
+
